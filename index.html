@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#020617">
+    <meta name="description" content="Tarus PC Tracker - Survivor Fantasy S50 Multiverse Production Build">
+    <title>Survivor Fantasy: S50 Multiverse</title>
+    
+    <!-- External Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        survivor: ['Bebas Neue', 'cursive'],
+                        inter: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        cila: '#f97316', 
+                        kalo: '#0ea5e9', 
+                        vatu: '#a855f7',
+                        slate: { 950: '#020617' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root { --glass-bg: rgba(10, 15, 30, 0.98); }
+        body { font-family: 'Inter', sans-serif; background-color: #020617; min-height: 100vh; color: white; overflow-x: hidden; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        
+        .font-survivor { font-family: 'Bebas Neue', cursive; letter-spacing: 0.05em; }
+        .glass-card { background: var(--glass-bg); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.8); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .glass-card:hover { border-color: rgba(245, 158, 11, 0.5); transform: translateY(-2px); }
+        
+        #fire-canvas { position: fixed; bottom: 0; left: 0; width: 100%; height: 45vh; pointer-events: none; z-index: -1; opacity: 0.5; mix-blend-mode: screen; }
+        #embers-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -2; opacity: 0.7; }
+        
+        .animate-slide-up { animation: slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slide-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .click-ripple { position: fixed; border-radius: 50%; background: radial-gradient(circle, rgba(245, 158, 11, 0.6) 0%, transparent 70%); pointer-events: none; width: 100px; height: 100px; transform: translate(-50%, -50%) scale(0); animation: ripple-effect 0.6s ease-out forwards; z-index: 9999; }
+        @keyframes ripple-effect { 0% { transform: translate(-50%, -50%) scale(0); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(2); opacity: 0; } }
+        
+        .commish-input, .commish-select, .commish-textarea { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 12px; color: white; width: 100%; font-size: 14px; outline: none; }
+        .commish-input:focus { border-color: #f59e0b; background: rgba(255, 255, 255, 0.05); }
+        
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.3); border-radius: 10px; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        #notification-center { position: fixed; top: 1rem; right: 1rem; z-index: 10000; pointer-events: none; }
+        
+        .flame-anim { animation: flicker 2s infinite alternate; }
+        @keyframes flicker { 0% { opacity: 0.8; filter: drop-shadow(0 0 5px #f59e0b); } 100% { opacity: 1; filter: drop-shadow(0 0 20px #f97316); } }
+    </style>
+</head>
+<body class="antialiased">
+
+    <canvas id="embers-canvas"></canvas>
+    <canvas id="fire-canvas"></canvas>
+    <div id="notification-center"></div>
+    <div id="app"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, collection, addDoc, query, getDocs, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // [1] GLOBAL VARIABLE DECLARATIONS (SECTION A)
+        // ==========================================
+        
+        window.MASTER_TRIVIA = [
+            { id: 1, q: "Who went home with two idols in China?", options: ["James", "Erik", "JT", "Ozzy"], answer: 0, lore: "James Clement famously went home with two idols." },
+            { id: 2, q: "What did Angelina negotiate for in S37?", options: ["Rice", "Tarp", "Blankets", "Jackets"], answer: 0, lore: "She gave up her spot in a challenge for rice." },
+            { id: 3, q: "Who holds the record for most days played?", options: ["Cirie", "Ozzy", "Boston Rob", "Sandra"], answer: 2, lore: "Rob Mariano has 152 total days." },
+            { id: 4, q: "First tribe to ever visit Tribal Council?", options: ["Kucha", "Tagi", "Pagong", "Ulong"], answer: 1, lore: "Tagi lost Sonja Christopher first." },
+            { id: 5, q: "Who holds the record of 5 immunity wins in one season?", options: ["Ozzy", "Joe", "Colby", "Terry"], answer: 0, lore: "Ozzy (S13) is the gold standard for challenge beasts." }
+        ];
+
+        window.MASTER_ROSTER = [
+            { id: "rizo", team: "Ian", tribe: "Cila", status: "Active" }, { id: "kamilla", team: "Ian", tribe: "Cila", status: "Active" }, { id: "angelina", team: "Ian", tribe: "Cila", status: "Active" },
+            { id: "rick", team: "Ian", tribe: "Vatu", status: "Active" }, { id: "kyle", team: "Ian", tribe: "Vatu", status: "Active" }, { id: "tiffany", team: "Ian", tribe: "Cila", status: "Active" },
+            { id: "christian", team: "Jess", tribe: "Kalo", status: "Active" }, { id: "savannah", team: "Jess", tribe: "Kalo", status: "Active" }, { id: "mike", team: "Jess", tribe: "Vatu", status: "Active" },
+            { id: "coach", team: "Jess", tribe: "Cila", status: "Active" }, { id: "dee", team: "Jess", tribe: "Vatu", status: "Active" }, { id: "joe", team: "Jess", tribe: "Vatu", status: "Active" },
+            { id: "jonathan", team: "Britt", tribe: "Kalo", status: "Active" }, { id: "ozzy", team: "Britt", tribe: "Kalo", status: "Active" }, { id: "emily", team: "Britt", tribe: "Cila", status: "Active" },
+            { id: "colby", team: "Britt", tribe: "Vatu", status: "Active" }, { id: "q", team: "Britt", tribe: "Vatu", status: "Active" }, { id: "stephenie", team: "Britt", tribe: "Cila", status: "Active" },
+            { id: "aubry", team: "Ken", tribe: "Vatu", status: "Active" }, { id: "charlie", team: "Ken", tribe: "Kalo", status: "Active" }, { id: "chrissy", team: "Ken", tribe: "Vatu", status: "Active" },
+            { id: "cirie", team: "Ken", tribe: "Kalo", status: "Active" }, { id: "genevieve", team: "Ken", tribe: "Kalo", status: "Active" }, { id: "jenna", team: "Ken", tribe: "Vatu", status: "Active" }
+        ];
+
+        window.MASTER_BIOS = {
+            "rizo": { name: "Rizo", job: "Strategist", origin: "Florida", firstSeason: "S49", archetype: "Architect", outlook: "High-risk social manipulator.", challengesWon: 4, timesInChallenge: 12, bio: "The 'Rizgod' returns.", strengths: "Social reading", weaknesses: "Threat level" },
+            "kamilla": { name: "Kamilla", job: "Software Engineer", origin: "Mass.", firstSeason: "S49", archetype: "Logic Engine", outlook: "Interactions like logic gates.", challengesWon: 7, timesInChallenge: 15, bio: "Clinical strategist.", strengths: "Puzzles", weaknesses: "Empathy" },
+            "rick": { name: "Rick Devens", job: "Anchor", origin: "Georgia", firstSeason: "S38", archetype: "Showman", outlook: "Expect idol chaos.", challengesWon: 4, timesInChallenge: 14, bio: "Legend of S38.", strengths: "Finding idols", weaknesses: "Visibility" },
+            "angelina": { name: "Angelina Keeley", job: "Negotiator", origin: "California", firstSeason: "S37", archetype: "Negotiator", outlook: "Always bartering.", challengesWon: 1, timesInChallenge: 10, bio: "Rice trade queen.", strengths: "Negotiation", weaknesses: "Self-awareness" },
+            "christian": { name: "Christian Hubicki", job: "Professor", origin: "Florida", firstSeason: "S37", archetype: "The Mayor", outlook: "Strategic shield.", challengesWon: 2, timesInChallenge: 11, bio: "Slamtown hero.", strengths: "Intelligence", weaknesses: "Physical" },
+            "ozzy": { name: "Ozzy Lusth", job: "Surfer", origin: "Mexico", firstSeason: "S13", archetype: "Dolphin", outlook: "Physical benchmark.", challengesWon: 16, timesInChallenge: 42, bio: "Physical beast.", strengths: "Swimming", weaknesses: "Rigidity" },
+            "dee": { name: "Dee Valladares", job: "Owner", origin: "Florida", firstSeason: "S45", archetype: "The Boss", outlook: "Winner energy.", challengesWon: 5, timesInChallenge: 13, bio: "Reba 4 Boss.", strengths: "Focus", weaknesses: "Loyalty" },
+            "emily": { name: "Emily Flippen", job: "Analyst", origin: "Maryland", firstSeason: "S45", archetype: "The Anchor", outlook: "Logical anchor.", challengesWon: 1, timesInChallenge: 12, bio: "Turnaround master.", strengths: "Data", weaknesses: "Friction" },
+            "savannah": { name: "Savannah", job: "Director", origin: "Texas", firstSeason: "S49", archetype: "Incumbent", outlook: "Largest target.", challengesWon: 6, timesInChallenge: 13, bio: "S49 Champion.", strengths: "Poise", weaknesses: "Visibility" },
+            "charlie": { name: "Charlie Davis", job: "Student", origin: "Mass.", firstSeason: "S46", archetype: "Swiftie", outlook: "Perfect ally.", challengesWon: 5, timesInChallenge: 14, bio: "Swiftie strategist.", strengths: "Endurance", weaknesses: "Passive" },
+            "jonathan": { name: "Jonathan Young", job: "Titan", origin: "Alabama", firstSeason: "S42", archetype: "The Shield", outlook: "Raw power.", challengesWon: 8, timesInChallenge: 14, bio: "Titan swimmer.", strengths: "Raw Power", weaknesses: "Nuance" },
+            "mike": { name: "Mike White", job: "Writer", origin: "California", firstSeason: "S37", archetype: "Scriptwriter", outlook: "Master of leverage.", challengesWon: 2, timesInChallenge: 14, bio: "White Lotus creator.", strengths: "Storytelling", weaknesses: "Physical" },
+            "coach": { name: "Coach Wade", job: "Maestro", origin: "California", firstSeason: "S18", archetype: "Dragonslayer", outlook: "Honor and lore.", challengesWon: 5, timesInChallenge: 22, bio: "Philosophical legend.", strengths: "Leadership", weaknesses: "Ego" },
+            "cirie": { name: "Cirie Fields", job: "Nurse", origin: "S. Carolina", firstSeason: "S12", archetype: "The Oracle", outlook: "Master of 3-2-1.", challengesWon: 2, timesInChallenge: 35, bio: "Master manipulator.", strengths: "Nuance", weaknesses: "Physical" },
+            "aubry": { name: "Aubry Bracco", job: "Analyst", origin: "N. Hampshire", firstSeason: "S32", archetype: "Protagonist", outlook: "Resilient master.", challengesWon: 4, timesInChallenge: 25, bio: "Chaos master.", strengths: "Narrative", weaknesses: "Anxiety" },
+            "colby": { name: "Colby Donaldson", job: "Actor", origin: "Texas", firstSeason: "S2", archetype: "Hero", outlook: "Original standard.", challengesWon: 9, timesInChallenge: 30, bio: "Original Survivor hero.", strengths: "Honor", weaknesses: "Pacing" },
+            "q": { name: "Q Burdette", job: "Agent", origin: "Mississippi", firstSeason: "S46", archetype: "Agent", outlook: "Chaos merchant.", challengesWon: 2, timesInChallenge: 12, bio: "BIG MISTAKE!", strengths: "Chaos", weaknesses: "Volatility" },
+            "chrissy": { name: "Chrissy Hofbeck", job: "Actuary", origin: "N. Jersey", firstSeason: "S35", archetype: "Actuary", outlook: "Math logic wins.", challengesWon: 4, timesInChallenge: 14, bio: "Calculation queen.", strengths: "Math", weaknesses: "Warmth" },
+            "tiffany": { name: "Tiffany Ervin", job: "Artist", origin: "N. Jersey", firstSeason: "S46", archetype: "Intuitive", outlook: "Heart-first play.", challengesWon: 2, timesInChallenge: 11, bio: "Yanu heart.", strengths: "Loyalty", weaknesses: "Intensity" },
+            "kyle": { name: "Kyle Kenji", job: "Trainer", origin: "California", firstSeason: "S48", archetype: "Titan", outlook: "Pure endurance.", challengesWon: 6, timesInChallenge: 15, bio: "S48 winner.", strengths: "Work ethic", weaknesses: "Complexity" },
+            "stephenie": { name: "Stephenie LaGrossa", job: "Survivor", origin: "N. Jersey", firstSeason: "S10", archetype: "Underdog", outlook: "Never gives up.", challengesWon: 3, timesInChallenge: 24, bio: "Ulong icon.", strengths: "Fire", weaknesses: "Friction" },
+            "genevieve": { name: "Genevieve", job: "Lawyer", origin: "Canada", firstSeason: "S47", archetype: "Assassin", outlook: "Hidden strategist.", challengesWon: 1, timesInChallenge: 10, bio: "Quiet assassin.", strengths: "Observation", weaknesses: "Visibility" },
+            "joe": { name: "Joe Anglim", job: "Artist", origin: "Arizona", firstSeason: "S30", archetype: "Provider", outlook: "Heart of tribe.", challengesWon: 6, timesInChallenge: 14, bio: "Physical icon.", strengths: "Balance", weaknesses: "Strategy" },
+            "jenna": { name: "Jenna Morasca", job: "Model", origin: "Pennsylvania", firstSeason: "S6", archetype: "Icon", outlook: "Immunity expert.", challengesWon: 3, timesInChallenge: 18, bio: "Amazon winner.", strengths: "Poise", weaknesses: "Mood" }
+        };
+
+        const INITIAL_MATRIX = [
+            { category: "Point opportunities", actions: [
+                { name: "Sole Survivor", points: 20, desc: "Crowned winner of S50." },
+                { name: "MVP Bonus", points: 10, desc: "Designated MVP of the week." },
+                { name: "Runner Ups", points: 10, desc: "Reached Final Tribal." },
+                { name: "Win Fire Making", points: 3, desc: "Wins F4 Fire-making." },
+                { name: "On The Jury", points: 2, desc: "Reached the Jury." },
+                { name: "Individual Merge", points: 1, desc: "Reached individual merge." },
+                { name: "First Person Out", points: -2, desc: "First person voted out." }
+            ]},
+            { category: "Tribal Points", actions: [
+                { name: "Uses SITD", points: 2, desc: "Plays Shot in the Dark." },
+                { name: "SITD Correctly", points: 2, desc: "SITD makes them safe." },
+                { name: "Advantage Correctly", points: 10, desc: "Successfully uses advantage." },
+                { name: "No Vote Available", points: -2, desc: "Tribal with no vote." },
+                { name: "Plays Idol for Ally", points: 2, desc: "Protects another castaway." },
+                { name: "Idol in Pocket", points: -5, desc: "Voted out with idol." },
+                { name: "Advantage in Pocket", points: -2, desc: "Voted out with advantage." }
+            ]},
+            { category: "Camp Life Points", actions: [
+                { name: "Finds Hidden Idol", points: 4, desc: "Locates immunity idol." },
+                { name: "Additional Idols", points: 2, desc: "Finds subsequent idols." },
+                { name: "Goes Through Bag", points: 1, desc: "Searches opponent's bag." },
+                { name: "Bag Search Victim", points: -1, desc: "Owner of searched bag." },
+                { name: "Makes Fake Idol", points: 2, desc: "Crafts realistic fake." },
+                { name: "Uses Fake Idol", points: -2, desc: "Tries to play a fake idol." },
+                { name: "Makes First Fire", points: 1, desc: "Creates first tribe fire." }
+            ]},
+            { category: "Challenge Points", actions: [
+                { name: "Winning Tribe", points: 2, desc: "On winning tribe (not benched)." },
+                { name: "Wins Ind. Immunity", points: 3, desc: "Wins individual necklace." },
+                { name: "Jeff Bribe", points: -2, desc: "Takes bribe from Jeff." },
+                { name: "Family Reward", points: 1, desc: "Goes on family reward." },
+                { name: "Sanctuary Advantage", points: 4, desc: "Advantage at sanctuary." }
+            ]},
+            { category: "Anytime Points", actions: [
+                { name: "Gives Jeff Shit", points: 1, desc: "Talking back to Jeff." },
+                { name: "Calls Jeff Uncle", points: -1, desc: "Using nickname." },
+                { name: "Needs Medical", points: -1, desc: "Requires medical team." }
+            ]}
+        ];
+
+        window.state = {
+            theme: 'dark', showSplash: true, currentUser: 'Viewer', activeTab: 'home',
+            viewingTeamId: null, editingPlayerId: window.MASTER_ROSTER[0].id,
+            players: window.MASTER_ROSTER,
+            playerBios: window.MASTER_BIOS,
+            pointSystem: INITIAL_MATRIX,
+            actions: [],
+            teamNames: { Ian: "Ian's Idols", Jess: "Jess's Juggernauts", Britt: "Britt's Beasts", Ken: "Ken's Kings" },
+            trivia: { seenIds: [], feedback: null }
+        };
+
+        // ==========================================
+        // [2] CORE LOGIC FUNCTIONS (SECTION B)
+        // ==========================================
+
+        const notify = (msg, type = 'info') => {
+            const container = document.getElementById('notification-center');
+            if (!container) return;
+            const note = document.createElement('div');
+            note.className = `glass-card p-4 rounded-2xl mb-2 text-[10px] font-black uppercase border-l-4 ${type === 'error' ? 'border-red-500' : 'border-amber-500'} animate-slide-up pointer-events-auto shadow-2xl`;
+            note.innerText = msg;
+            container.appendChild(note);
+            setTimeout(() => { note.style.opacity = '0'; setTimeout(() => note.remove(), 500); }, 3500);
+        };
+
+        const getTribeStyle = (tribe) => {
+            const map = { 'Cila': { bg: 'bg-cila', text: 'text-cila' }, 'Kalo': { bg: 'bg-kalo', text: 'text-kalo' }, 'Vatu': { bg: 'bg-vatu', text: 'text-vatu' } };
+            return map[tribe] || { bg: 'bg-slate-500', text: 'text-slate-500' };
+        };
+
+        // ==========================================
+        // [3] MAIN UI RENDERING ENGINE (SECTION C)
+        // ==========================================
+
+        window.updateAppUI = function() {
+            const root = document.getElementById('app');
+            if (!root || !window.state) return;
+
+            if (window.state.showSplash) { root.innerHTML = renderSplash(); return; }
+            if (window.state.currentUser === 'Viewer') { root.innerHTML = renderUserSelect(); return; }
+
+            const playerScores = {};
+            window.state.players.forEach(p => playerScores[p.id] = 0);
+            window.state.actions.forEach(a => { if(playerScores[a.playerId] !== undefined) playerScores[a.playerId] += a.points; });
+            const teamTotals = { Ian: 0, Jess: 0, Britt: 0, Ken: 0 };
+            window.state.players.forEach(p => teamTotals[p.team] += (playerScores[p.id] || 0));
+            const sortedTeams = Object.entries(teamTotals).map(([team, score]) => ({ team, score })).sort((a,b) => b.score - a.score);
+
+            let mainContent = '';
+            if (window.state.viewingTeamId) {
+                mainContent = renderWarRoom(window.state.viewingTeamId, playerScores);
+            } else {
+                const t = window.state.activeTab;
+                if (t === 'home') mainContent = renderHome(sortedTeams, playerScores);
+                else if (t === 'tribes') mainContent = renderTribes(playerScores);
+                else if (t === 'guide') mainContent = renderRules();
+                else if (t === 'trivia') mainContent = renderTrivia();
+                else if (t === 'commissioner') mainContent = renderCommissioner();
+            }
+
+            root.innerHTML = `
+                <div class="max-w-7xl mx-auto px-6 py-8 pb-32 text-white">
+                    <header class="flex flex-col md:flex-row justify-between items-center mb-12 gap-6 border-b border-white/5 pb-8 animate-slide-up">
+                        <div class="flex items-center gap-4"><i class="fa-solid fa-fire text-5xl text-amber-500 flame-anim"></i><div><h1 class="text-4xl md:text-5xl font-survivor font-black uppercase text-left">Multiverse S50</h1><p class="text-[9px] text-slate-500 tracking-[0.4em] font-black uppercase text-left">Principal Architect Build</p></div></div>
+                        <div class="flex items-center gap-3">
+                            <button id="switch-user" class="glass-card px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest hover:border-amber-500/50 transition-all"><i class="fa-solid fa-user-circle mr-2 text-amber-500"></i> ${window.state.currentUser}</button>
+                        </div>
+                    </header>
+                    ${mainContent}
+                    <nav class="fixed bottom-0 inset-x-0 glass-card p-4 pb-safe z-[150] border-t border-white/10 text-white text-center">
+                        <div class="max-w-xl mx-auto flex justify-between items-center overflow-x-auto hide-scrollbar px-2">
+                            ${['home','tribes','guide','trivia','commissioner'].filter(id => id !== 'commissioner' || window.state.currentUser === 'Jess').map(id => `
+                                <button data-tab="${id}" class="flex flex-col items-center gap-1.5 ${window.state.activeTab === id && !window.state.viewingTeamId ? 'text-amber-500' : 'text-slate-500'} transition-colors px-3 min-w-[50px] text-center"><i class="fa-solid ${id==='home'?'fa-house':id==='tribes'?'fa-campground':id==='guide'?'fa-map':id==='trivia'?'fa-brain':'fa-shield'} text-lg"></i><span class="text-[7px] font-black uppercase tracking-widest text-center block w-full">${id === 'guide' ? 'RULES' : id.toUpperCase()}</span></button>`).join('')}
+                        </div>
+                    </nav>
+                    ${renderPlayerModal()}
+                </div>`;
+        };
+
+        // --- SUB-RENDERERS ---
+
+        function renderSplash() {
+            return `<div class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center z-[250] animate-slide-up">
+                <i class="fa-solid fa-fire text-8xl text-amber-500 mb-8 flame-anim"></i>
+                <h1 class="text-7xl font-survivor tracking-tighter mb-12 uppercase font-black">Fantasy <span class="text-amber-500">Survivor</span></h1>
+                <button id="start-btn" class="glass-card px-12 py-6 rounded-[30px] border border-white/10 hover:border-amber-500 transition-all font-survivor text-3xl uppercase tracking-widest">Launch Multiverse</button>
+            </div>`;
+        }
+
+        function renderUserSelect() {
+            return `<div class="fixed inset-0 bg-black/95 flex items-center justify-center z-[250] p-6 animate-slide-up">
+                <div class="bg-slate-950 rounded-[50px] p-10 max-w-md w-full text-center border border-slate-800 shadow-2xl">
+                    <h2 class="text-5xl font-survivor text-amber-500 tracking-widest mb-10 uppercase">Identity</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        ${Object.keys(window.state.teamNames).map(u => `<button data-user="${u}" class="glass-card p-6 rounded-[35px] hover:border-amber-500 transition-all flex flex-col items-center gap-4 text-center text-white font-black text-[10px] tracking-widest uppercase"><div class="w-16 h-16 rounded-full bg-amber-500 flex items-center justify-center font-survivor text-4xl text-white shadow-xl">${u[0]}</div>${window.state.teamNames[u]}</button>`).join('')}
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderHome(sortedTeams, playerScores) {
+            const teamPlayers = window.state.players.filter(p => p.team === window.state.currentUser);
+            return `<div class="animate-slide-up">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12 text-center">
+                    ${sortedTeams.map((t, i) => `
+                        <button data-view-team="${t.team}" class="glass-card p-6 rounded-[35px] border-t-8 ${i===0?'border-amber-500':'border-transparent'} relative text-center hover:scale-105 transition-transform group">
+                            <span class="text-[8px] font-black uppercase text-slate-500 block mb-2 group-hover:text-amber-500">${window.state.teamNames[t.team]}</span>
+                            <div class="text-4xl font-survivor fire-text mb-1 text-center">${t.score}</div>
+                            <div class="text-[7px] font-bold text-slate-400 uppercase tracking-widest text-center">Open War Room</div>
+                        </button>`).join('')}
+                </div>
+                <div class="glass-card p-8 rounded-[40px]">
+                    <h2 class="font-survivor text-3xl uppercase mb-6 flex gap-3 items-center text-white text-left"><i class="fa-solid fa-user-gear text-amber-500"></i> ${window.state.teamNames[window.state.currentUser].toUpperCase()}'S DASH</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-left">
+                        ${teamPlayers.map(p => {
+                            const style = getTribeStyle(p.tribe);
+                            const bio = window.state.playerBios[p.id];
+                            return `<button data-player-id="${p.id}" class="w-full glass-card p-4 rounded-[25px] flex items-center gap-4 text-left ${p.status === 'Out' ? 'opacity-40 grayscale' : ''}">
+                                <div class="w-12 h-12 rounded-full ${style.bg} flex items-center justify-center font-black text-white text-xl relative">${bio.name[0]}</div>
+                                <div class="flex-1 overflow-hidden text-left"><div class="font-black text-xs text-white truncate">${bio.name}</div><div class="text-[8px] font-bold ${style.text} uppercase tracking-widest text-left">${p.tribe} • ${p.status}</div></div>
+                                <div class="text-2xl font-survivor text-amber-500 text-right">${playerScores[p.id] || 0}</div>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderWarRoom(teamId, playerScores) {
+            const teamPlayers = window.state.players.filter(p => p.team === teamId);
+            return `<div class="animate-slide-up text-left max-w-4xl mx-auto pb-20">
+                <button id="back-home" class="mb-6 text-[10px] font-black uppercase text-amber-500 flex items-center gap-2 hover:translate-x-1 transition-transform"><i class="fa-solid fa-arrow-left"></i> Return Home</button>
+                <div class="glass-card p-10 rounded-[50px] border-amber-500/20 mb-8 relative overflow-hidden">
+                    <h2 class="text-6xl font-survivor uppercase mb-2 text-left">${window.state.teamNames[teamId]}</h2>
+                    <p class="text-slate-400 text-xs font-medium max-w-lg mb-6 text-left">Analytical dossier for owner ${teamId}. Tracking tactical movement and legend metrics.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                    ${teamPlayers.map(p => {
+                        const bio = window.state.playerBios[p.id];
+                        const style = getTribeStyle(p.tribe);
+                        return `<div class="glass-card p-6 rounded-[40px] border-white/5 text-white">
+                            <div class="flex items-center gap-4 mb-4 text-left">
+                                <div class="w-14 h-14 rounded-full ${style.bg} flex items-center justify-center font-survivor text-3xl text-white shadow-xl text-center">${bio.name[0]}</div>
+                                <div class="text-left text-white text-left"><div class="font-black uppercase text-sm">${bio.name}</div><div class="text-[9px] font-bold ${style.text} uppercase text-left">${p.tribe} • ${p.status}</div></div>
+                                <div class="ml-auto text-3xl font-survivor text-amber-500 text-right">${playerScores[p.id] || 0}</div>
+                            </div>
+                            <div class="space-y-3 mb-4 text-left">
+                                <p class="text-[10px] text-slate-300 italic text-left leading-relaxed">"${bio.outlook || 'Dossier Classified.'}"</p>
+                                <div class="grid grid-cols-2 gap-2 text-[9px] font-black uppercase text-slate-500">
+                                    <div class="text-left">Season: <span class="text-white">${bio.firstSeason || '-'}</span></div>
+                                    <div class="text-left">Wins/Play: <span class="text-white">${bio.challengesWon}/${bio.timesInChallenge}</span></div>
+                                    <div class="text-left">Job: <span class="text-white">${bio.job || '-'}</span></div>
+                                    <div class="text-left">Origin: <span class="text-white">${bio.origin || '-'}</span></div>
+                                </div>
+                            </div>
+                            <button data-player-id="${p.id}" class="w-full py-3 rounded-2xl bg-white/5 text-[9px] font-black uppercase text-amber-500 hover:bg-white/10 transition-colors text-center">Log XP Move</button>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }
+
+        function renderCommissioner() {
+            const p = window.state.players.find(pl => pl.id === window.state.editingPlayerId) || window.state.players[0];
+            const bio = window.state.playerBios[p.id];
+            return `<div class="max-w-4xl mx-auto py-8 animate-slide-up pb-20 text-left">
+                <h2 class="text-5xl font-survivor font-black uppercase tracking-widest text-center mb-10 text-white">Commissioner Hub</h2>
+                
+                <div class="glass-card p-8 rounded-[40px] border-white/5 mb-10">
+                    <h3 class="font-survivor text-2xl uppercase mb-6 text-white text-left">Section 1: Branding</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        ${Object.keys(window.state.teamNames).map(k => `<div><label class="text-[8px] text-slate-500 font-black uppercase mb-1 block">${k}</label><input data-team-key="${k}" type="text" class="commish-input" value="${window.state.teamNames[k]}"></div>`).join('')}
+                    </div>
+                    <button id="save-teams" class="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-black uppercase text-[10px] tracking-widest hover:bg-amber-500 transition-all">Propagate Branding</button>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass-card p-8 rounded-[40px] border-white/5 text-left">
+                        <h3 class="font-survivor text-2xl uppercase mb-6 text-white text-left">Section 2: Dossier Mastery</h3>
+                        <div class="space-y-4 text-left">
+                            <select id="commish-player-select" class="commish-select w-full">${window.state.players.map(pl => `<option value="${pl.id}" ${pl.id === window.state.editingPlayerId ? 'selected' : ''}>${window.state.playerBios[pl.id]?.name.toUpperCase() || 'NEW'}</option>`).join('')}</select>
+                            <input id="commish-name-input" type="text" class="commish-input" value="${bio.name}" placeholder="Name">
+                            <div class="grid grid-cols-2 gap-3"><input id="commish-job-input" type="text" class="commish-input" value="${bio.job || ''}" placeholder="Job"><input id="commish-origin-input" type="text" class="commish-input" value="${bio.origin || ''}" placeholder="Origin"></div>
+                            <div class="grid grid-cols-2 gap-3"><input id="commish-season-input" type="text" class="commish-input" value="${bio.firstSeason || ''}" placeholder="Season"><input id="commish-wins-input" type="number" class="commish-input" value="${bio.challengesWon || 0}" placeholder="Wins"></div>
+                            <textarea id="commish-bio-textarea" class="commish-textarea h-24" placeholder="Tactical Outlook...">${bio.outlook || ''}</textarea>
+                            <textarea id="commish-longbio-input" class="commish-textarea h-24" placeholder="Full Bio...">${bio.bio || ''}</textarea>
+                            <button id="save-commish-data" class="w-full py-4 rounded-2xl bg-amber-500 text-black font-black uppercase tracking-widest text-[10px]">Sync Records Globally</button>
+                        </div>
+                    </div>
+                    <div class="glass-card p-8 rounded-[40px] border-white/5 text-left">
+                        <h3 class="font-survivor text-2xl uppercase mb-6 text-white text-left">Section 3: Matrix Architect</h3>
+                        <div class="space-y-4 text-left">
+                            <select id="matrix-cat-select" class="commish-select w-full">${window.state.pointSystem.map((cat, i) => `<option value="${i}">${cat.category.toUpperCase()}</option>`).join('')}<option value="NEW">+ NEW CATEGORY</option></select>
+                            <input id="matrix-item-name" type="text" class="commish-input" placeholder="Rule Name">
+                            <input id="matrix-item-points" type="number" class="commish-input" placeholder="Value">
+                            <textarea id="matrix-item-desc" class="commish-textarea h-24" placeholder="Description"></textarea>
+                            <button id="add-matrix-item" class="w-full py-4 rounded-2xl bg-amber-500 text-black font-black uppercase text-[10px]">Update Matrix Globally</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-10 glass-card p-8 rounded-[40px] border-red-500/20 text-center">
+                    <h3 class="font-survivor text-2xl uppercase mb-4 text-red-500">Section 4: System Reset</h3>
+                    <button id="clear-actions" class="px-8 py-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-[10px] font-black uppercase hover:bg-red-500 hover:text-white transition-all">Clear All Season Moves</button>
+                </div>
+            </div>`;
+        }
+
+        function renderTribes(playerScores) {
+            return `<div class="space-y-12 animate-slide-up text-left">
+                ${['Cila', 'Kalo', 'Vatu'].map(tribe => `
+                    <div class="text-left">
+                        <h3 class="font-survivor text-3xl uppercase mb-6 flex gap-3 items-center text-left text-white"><span class="w-10 h-1.5 ${getTribeStyle(tribe).bg} rounded-full"></span> ${tribe} Tribe</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            ${window.state.players.filter(p => p.tribe === tribe).map(p => `
+                                <button data-player-id="${p.id}" class="glass-card p-4 rounded-[25px] flex items-center gap-4 text-left ${p.status === 'Out' ? 'opacity-40 grayscale' : ''}">
+                                    <div class="w-12 h-12 rounded-full ${getTribeStyle(tribe).bg} flex items-center justify-center font-black text-white text-xl text-center">${window.state.playerBios[p.id]?.name[0] || '?'}</div>
+                                    <div class="flex-1 overflow-hidden text-left"><div class="font-black text-xs text-white truncate text-left">${window.state.playerBios[p.id]?.name || 'Unknown'}</div><div class="text-[8px] text-slate-500 uppercase text-left">${window.state.teamNames[p.team]}</div></div>
+                                    <div class="text-amber-500 font-black text-xs text-right">${playerScores[p.id] || 0}</div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        function renderRules() {
+            return `<div class="max-w-2xl mx-auto py-8 animate-slide-up text-left">
+                <h2 class="text-5xl font-survivor font-black uppercase tracking-widest text-center mb-12 text-white text-center">Tactical Manual</h2>
+                
+                <div class="glass-card p-8 rounded-[40px] border-amber-500/50 bg-amber-500/5 mb-12 text-left">
+                    <h3 class="font-survivor text-3xl uppercase mb-6 text-amber-500 flex gap-3 items-center"><i class="fa-solid fa-graduation-cap text-white"></i> OWNER'S PLAYBOOK</h3>
+                    <div class="space-y-4 text-[12px] text-slate-300 leading-relaxed">
+                        <p><strong class="text-white uppercase font-black block mb-1">1. AUTHENTICATION</strong><br>Identify your franchise on login. This filters your personal dashboard to show your 6 drafted legends.</p>
+                        <p><strong class="text-white uppercase font-black block mb-1">2. LOGGING MOVES</strong><br>Tap any player's card to log an XP event. Scores update in real-time for all connected owners.</p>
+                        <p><strong class="text-white uppercase font-black block mb-1">3. THE WAR ROOM</strong><br>Tap any team total in the standings to enter their War Room and view deep analytical dossiers.</p>
+                    </div>
+                </div>
+
+                <div class="space-y-8 text-left">
+                    <h3 class="font-survivor text-2xl uppercase border-b border-white/5 pb-2 text-white">Active Point Matrix</h3>
+                    ${window.state.pointSystem.map(cat => `
+                        <div class="glass-card p-6 rounded-[30px] border border-white/5 text-left text-white text-left">
+                            <h3 class="text-amber-500 font-black text-[10px] uppercase mb-4 tracking-widest flex items-center gap-3 text-white text-left"><span class="w-6 h-0.5 bg-amber-500/30 rounded-full"></span> ${cat.category}</h3>
+                            <div class="space-y-4 text-left text-white">
+                                ${cat.actions.map(act => `<div class="flex justify-between items-start border-b border-white/5 pb-4 last:border-0 last:pb-0 text-left">
+                                    <div class="flex-1 pr-4 text-left text-white text-xs text-left"><div class="font-bold uppercase tracking-wider text-left text-white text-left">${act.name}</div><div class="text-[10px] text-slate-500 font-medium leading-tight text-left text-white text-left">${act.desc}</div></div>
+                                    <div class="font-survivor text-3xl ${act.points > 0 ? 'text-amber-500' : 'text-red-500'} text-right text-white text-right">${act.points > 0 ? '+' : ''}${act.points}</div>
+                                </div>`).join('')}
+                            </div>
+                        </div>`).join('')}
+                </div>
+            </div>`;
+        }
+
+        function renderTrivia() {
+            const pool = window.MASTER_TRIVIA.filter(q => !window.state.trivia.seenIds.includes(q.id));
+            if (pool.length === 0) return `<div class="max-w-2xl mx-auto py-10 text-center text-white"><h2 class="text-5xl font-survivor mb-8">Pool Exhausted</h2><button id="reset-trivia" class="glass-card px-8 py-3 rounded-full text-[10px] font-black uppercase text-amber-500">Ancient Refresh</button></div>`;
+            const q = pool[0];
+            return `<div class="max-w-2xl mx-auto py-10 animate-slide-up text-center text-white"><h2 class="text-5xl font-survivor uppercase mb-8">Ancient Voices</h2><div class="glass-card p-10 rounded-[50px] border border-white/5 relative text-center text-white"><div class="absolute -top-5 left-1/2 -translate-x-1/2 bg-amber-500 text-black px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest text-center">Progress Tracking Enabled</div><h4 class="text-2xl font-bold mb-10 leading-relaxed text-center">${q.q}</h4><div class="grid grid-cols-1 gap-3">${q.options.map((opt, i) => `<button data-ans="${i}" data-qid="${q.id}" class="p-6 rounded-3xl bg-white/5 border border-white/10 hover:border-amber-500 transition-all font-bold text-center text-white w-full">${opt}</button>`).join('')}</div><button id="skip-trivia" class="mt-8 text-slate-500 hover:text-white font-black text-[10px] uppercase text-center w-full">Skip Question</button></div>${window.state.trivia.feedback ? `<div class="mt-8 glass-card p-6 rounded-[30px] border-amber-500/30 animate-slide-up text-center text-white"><p class="text-amber-500 font-black uppercase text-xs mb-2 text-center">${window.state.trivia.feedback.correct ? 'CORRECT!' : 'WRONG!'}</p><p class="text-slate-400 text-sm italic text-center text-white">"${q.lore}"</p><button id="next-trivia" class="mt-6 bg-amber-500 text-black px-8 py-3 rounded-full font-black text-[10px] uppercase block mx-auto">CONTINUE</button></div>` : ''}</div>`;
+        }
+
+        function renderPlayerModal() {
+            if (!window.state.selectedPlayerId) return '';
+            const p = window.state.players.find(p => p.id === window.state.selectedPlayerId);
+            if (!p) return '';
+            const bio = window.state.playerBios[p.id];
+            const style = getTribeStyle(p.tribe);
+            return `<div class="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-end md:items-center justify-center z-[200] p-0 md:p-6 animate-slide-up text-white text-center">
+                <div class="bg-slate-950 w-full max-w-2xl rounded-t-[50px] md:rounded-[50px] border border-white/10 overflow-hidden flex flex-col max-h-[95vh]">
+                    <div class="h-40 relative ${style.bg} flex items-center justify-center text-white text-center"><button id="close-modal" class="absolute top-6 right-6 w-10 h-10 rounded-full bg-black/20 text-white flex items-center justify-center hover:bg-black/40 z-[320] transition-transform active:scale-90 text-center"><i class="fa-solid fa-xmark"></i></button><div class="absolute inset-0 flex items-center justify-center opacity-10 text-9xl font-survivor text-center w-full">${p.tribe}</div><div class="w-24 h-24 rounded-full bg-white shadow-2xl flex items-center justify-center text-5xl font-black ${style.text} relative z-10 text-center"> ${bio.name[0]}</div></div>
+                    <div class="p-8 overflow-y-auto hide-scrollbar custom-scroll pb-32 text-left text-white">
+                        <h2 class="text-5xl font-survivor font-black uppercase text-white mb-2 text-left">${bio.name}</h2>
+                        <div class="grid grid-cols-2 gap-4 mb-6 text-left">
+                            <div class="bg-white/5 p-4 rounded-3xl text-center text-left"><div class="text-[7px] text-slate-500 font-black uppercase text-center text-white">Wins</div><div class="text-3xl font-survivor text-amber-500 text-center">${bio.challengesWon || 0}</div></div>
+                            <div class="bg-white/5 p-4 rounded-3xl text-center text-left"><div class="text-[7px] text-slate-500 font-black uppercase text-center text-white">Played</div><div class="text-3xl font-survivor text-white text-center">${bio.timesInChallenge || 0}</div></div>
+                        </div>
+                        <p class="text-slate-400 text-xs mb-10 italic border-l-2 border-amber-500 pl-4 leading-relaxed text-left text-white">"${bio.bio || 'Returning for the crown.'}"</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                            ${window.state.pointSystem.flatMap(c => c.actions.map(a => `<button data-log-name="${a.name}" data-log-points="${a.points}" class="flex justify-between items-center p-4 rounded-2xl bg-white/5 border border-white/5 hover:border-amber-500/50 transition-all text-left text-white"><div><span class="text-xs font-bold text-white uppercase text-left">${a.name}</span><br><span class="text-[9px] text-slate-500 uppercase text-left">${c.category}</span></div><span class="${a.points > 0 ? 'text-amber-500' : 'text-red-500'} font-black text-xs text-right text-white">${a.points > 0 ? '+' : ''}${a.points}</span></button>`)).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // ==========================================
+        // [4] DATA LISTENERS & FIREBASE (SECTION D)
+        // ==========================================
+
+        const initSyncEngine = async () => {
+            try {
+                const configCheck = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+                if (!configCheck) {
+                    if (typeof window.updateAppUI === "function") window.updateAppUI(); 
+                    return;
+                }
+                
+                const firebaseApp = initializeApp(JSON.parse(configCheck));
+                const auth = getAuth(firebaseApp);
+                const db = getFirestore(firebaseApp);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'multiverse-final-p-v3';
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { 
+                    await signInWithCustomToken(auth, __initial_auth_token); 
+                } else { 
+                    await signInAnonymously(auth); 
+                }
+                
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'gameConfig', 'main'), (snap) => {
+                    if (snap.exists()) { Object.assign(window.state, snap.data()); }
+                    if (typeof window.updateAppUI === "function") window.updateAppUI();
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'actions'), (snap) => {
+                    window.state.actions = snap.docs.map(d => ({...d.data(), fireId: d.id})); 
+                    if (typeof window.updateAppUI === "function") window.updateAppUI();
+                });
+
+                window.db = db;
+                window.appId = appId;
+
+            } catch (err) { 
+                console.error("Connectivity Failure:", err); 
+                if (typeof window.updateAppUI === "function") window.updateAppUI(); 
+            }
+        };
+
+        // ==========================================
+        // [5] APP INITIALIZATION (SECTION E)
+        // ==========================================
+
+        function initFX() {
+            const fCanvas = document.getElementById('fire-canvas'), eCanvas = document.getElementById('embers-canvas');
+            if (!fCanvas || !eCanvas) return;
+            const fCtx = fCanvas.getContext('2d'), eCtx = eCanvas.getContext('2d');
+            let w, h, embers = [];
+            const resize = () => { w = fCanvas.width = eCanvas.width = window.innerWidth; h = fCanvas.height = eCanvas.height = window.innerHeight; };
+            window.addEventListener('resize', resize); resize();
+            class Ember {
+                constructor() { this.reset(); }
+                reset() { this.x = Math.random() * w; this.y = h + 10; this.vx = (Math.random() - 0.5) * 1.5; this.vy = -(Math.random() * 2 + 0.5); this.life = Math.random() * 0.5 + 0.5; this.size = Math.random() * 2 + 1; }
+                update() { this.x += this.vx; this.y += this.vy; this.life -= 0.003; if (this.life <= 0 || this.y < 0) this.reset(); }
+                draw() { eCtx.beginPath(); eCtx.arc(this.x, this.y, this.size, 0, Math.PI * 2); eCtx.fillStyle = `rgba(245, 158, 11, ${this.life})`; eCtx.fill(); }
+            }
+            for(let i=0; i<40; i++) embers.push(new Ember());
+            const loop = () => {
+                fCtx.clearRect(0,0,w,h);
+                const grad = fCtx.createLinearGradient(0, h, 0, h - 300);
+                grad.addColorStop(0, 'rgba(234, 88, 12, 0.4)'); grad.addColorStop(1, 'transparent');
+                fCtx.fillStyle = grad; fCtx.fillRect(0, h-300, w, 300);
+                eCtx.clearRect(0,0,w,h); embers.forEach(e => { e.update(); e.draw(); });
+                requestAnimationFrame(loop);
+            };
+            loop();
+        }
+
+        // --- GLOBAL EVENT HUB ---
+        document.addEventListener('click', (e) => {
+            const t = e.target;
+            if (e.clientX) { const r = document.createElement('div'); r.className = 'click-ripple'; r.style.left = `${e.clientX}px`; r.style.top = `${e.clientY}px`; document.body.appendChild(r); setTimeout(() => r.remove(), 600); }
+            
+            if (t.closest('#start-btn')) { window.state.showSplash = false; window.updateAppUI(); return; }
+            if (t.closest('[data-user]')) { window.state.currentUser = t.closest('[data-user]').dataset.user; window.updateAppUI(); return; }
+            if (t.closest('#switch-user')) { window.state.currentUser = 'Viewer'; window.updateAppUI(); return; }
+            if (t.closest('[data-tab]')) { window.state.activeTab = t.closest('[data-tab]').dataset.tab; window.state.viewingTeamId = null; window.updateAppUI(); return; }
+            if (t.closest('[data-view-team]')) { window.state.viewingTeamId = t.closest('[data-view-team]').dataset.viewTeam; window.updateAppUI(); return; }
+            if (t.closest('#back-home')) { window.state.viewingTeamId = null; window.updateAppUI(); return; }
+            if (t.closest('[data-player-id]')) { window.state.selectedPlayerId = t.closest('[data-player-id]').dataset.playerId; window.updateAppUI(); return; }
+            if (t.closest('#close-modal')) { window.state.selectedPlayerId = null; window.updateAppUI(); return; }
+            
+            if (t.closest('[data-log-name]')) {
+                const b = t.closest('[data-log-name]');
+                const action = { playerId: window.state.selectedPlayerId, type: b.dataset.logName, points: parseInt(b.dataset.logPoints), by: window.state.currentUser, time: Date.now() };
+                if (window.db) { addDoc(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'actions'), action); } 
+                else { window.state.actions.push(action); window.updateAppUI(); }
+                window.state.selectedPlayerId = null; window.updateAppUI(); return;
+            }
+
+            if (t.closest('[data-ans]')) {
+                if (window.state.trivia.feedback) return;
+                const qid = parseInt(t.closest('[data-ans]').dataset.qid);
+                const q = window.MASTER_TRIVIA.find(item => item.id === qid);
+                window.state.trivia.feedback = { correct: parseInt(t.closest('[data-ans]').dataset.ans) === q.answer };
+                window.updateAppUI(); return;
+            }
+            if (t.closest('#next-trivia')) {
+                const pool = window.MASTER_TRIVIA.filter(q => !window.state.trivia.seenIds.includes(q.id));
+                if (pool[0]) window.state.trivia.seenIds.push(pool[0].id);
+                window.state.trivia.feedback = null; window.updateAppUI(); return;
+            }
+            if (t.closest('#skip-trivia')) {
+                const pool = window.MASTER_TRIVIA.filter(q => !window.state.trivia.seenIds.includes(q.id));
+                if (pool[0]) window.state.trivia.seenIds.push(pool[0].id);
+                window.updateAppUI(); return;
+            }
+            if (t.closest('#reset-trivia')) { window.state.trivia.seenIds = []; window.updateAppUI(); return; }
+
+            // Commissioner Suite logic
+            if (t.closest('#save-commish-data')) {
+                const b = window.state.playerBios[window.state.editingPlayerId];
+                b.name = document.getElementById('commish-name-input').value;
+                b.job = document.getElementById('commish-job-input').value;
+                b.origin = document.getElementById('commish-origin-input').value;
+                b.challengesWon = parseInt(document.getElementById('commish-wins-input').value);
+                b.outlook = document.getElementById('commish-bio-textarea').value;
+                b.bio = document.getElementById('commish-longbio-input').value;
+                if (window.db) { setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'gameConfig', 'main'), window.state).then(() => notify("Cloud Dossier Updated")); } 
+                else { window.updateAppUI(); }
+                return;
+            }
+            if (t.closest('#save-teams')) {
+                document.querySelectorAll('[data-team-key]').forEach(inp => { window.state.teamNames[inp.dataset.teamKey] = inp.value; });
+                if (window.db) { setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'gameConfig', 'main'), window.state).then(() => notify("Branding Synchronized")); } 
+                else { window.updateAppUI(); }
+                return;
+            }
+            if (t.closest('#clear-actions')) {
+                if (confirm("Permanently wipe all season moves?")) {
+                    if (window.db) {
+                        getDocs(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'actions')).then(snap => {
+                            snap.docs.forEach(d => deleteDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'actions', d.id)));
+                        });
+                    } else { window.state.actions = []; window.updateAppUI(); }
+                }
+                return;
+            }
+        });
+
+        document.addEventListener('change', (e) => { 
+            if (e.target.id === 'commish-player-select') { window.state.editingPlayerId = e.target.value; window.updateAppUI(); }
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initFX();
+            if (typeof window.updateAppUI === "function") window.updateAppUI(); 
+            initSyncEngine();
+        });
+    </script>
+</body>
+</html>
